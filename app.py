@@ -1,109 +1,30 @@
-import json
-import os
-from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 import paho.mqtt.client as mqtt
 import pymysql
-from dotenv import load_dotenv
 
-BASE_DIR = Path(__file__).resolve().parent
-ENV_PATH = BASE_DIR / ".env"
-ENV_EXAMPLE_PATH = BASE_DIR / ".env.example"
-
-if ENV_PATH.exists():
-    load_dotenv(dotenv_path=ENV_PATH)
-elif ENV_EXAMPLE_PATH.exists():
-    # Fallback to example config when .env is missing.
-    load_dotenv(dotenv_path=ENV_EXAMPLE_PATH)
-
-MQTT_HOST = os.getenv("MQTT_HOST", "iot.cpe.ku.ac.th")
-MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
-MQTT_TOPIC = os.getenv("MQTT_TOPIC", "b6710545709/field_monitoring")
-MQTT_DEBUG_WILDCARD = os.getenv("MQTT_DEBUG_WILDCARD", "1") == "1"
-MQTT_USER = os.getenv("MQTT_USER", "")
-MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", "")
-
-DB_HOST = os.getenv("DB_HOST", "iot.cpe.ku.ac.th")
-DB_PORT = int(os.getenv("DB_PORT", "3306"))
-DB_USER = os.getenv("DB_USER", "b6710545709")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "")
-DB_NAME = os.getenv("DB_NAME", "b6710545709")
-
-SQL_INSERT = """
-INSERT INTO field_monitoring1 (
-    device_id, soil_moisture, temperature, humidity, pm1_0, pm2_5, pm10
+from config import (
+    BACKFILL_ALL_ON_START,
+    DB_HOST,
+    DB_NAME,
+    DB_PASSWORD,
+    DB_PORT,
+    DB_USER,
+    MQTT_DEBUG_WILDCARD,
+    MQTT_HOST,
+    MQTT_PASSWORD,
+    MQTT_PORT,
+    MQTT_TOPIC,
+    MQTT_USER,
+    PROCESS_AFTER_MINUTES,
+    PROCESS_POLL_SECONDS,
+    validate_required_config,
 )
-VALUES (%s, %s, %s, %s, %s, %s, %s)
-"""
+from db_utils import ensure_field_monitoring_schema, get_db_connection, insert_field_monitoring_raw
+from parser_utils import parse_payload
+from processor import backfill_all_unprocessed, start_background_processor
 
-
-def get_db_connection() -> pymysql.connections.Connection:
-    return pymysql.connect(
-        host=DB_HOST,
-        port=DB_PORT,
-        user=DB_USER,
-        password=DB_PASSWORD,
-        database=DB_NAME,
-        autocommit=True,
-        charset="utf8mb4",
-        cursorclass=pymysql.cursors.Cursor,
-    )
-
-
-def parse_payload(raw_payload: bytes) -> Dict[str, Any] | None:
-    try:
-        text = raw_payload.decode("utf-8").strip()
-    except UnicodeDecodeError:
-        print("[ERROR] Payload is not valid UTF-8")
-        return None
-
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        print("[ERROR] Invalid JSON payload")
-        return None
-
-    device_id = data.get("device_id") or "kidbright_01"
-    soil_moisture = to_int_or_none(data.get("soil_moisture"))
-    temperature = to_float_or_none(data.get("temperature"))
-    humidity = to_float_or_none(data.get("humidity"))
-
-    dust = data.get("dust") or {}
-    pm1_0 = to_int_or_none(dust.get("pm1_0"))
-    pm2_5 = to_int_or_none(dust.get("pm2_5"))
-    pm10 = to_int_or_none(dust.get("pm10"))
-
-    return {
-        "device_id": device_id,
-        "soil_moisture": soil_moisture,
-        "temperature": temperature,
-        "humidity": humidity,
-        "pm1_0": pm1_0,
-        "pm2_5": pm2_5,
-        "pm10": pm10,
-    }
-
-
-def to_int_or_none(value: Any) -> int | None:
-    try:
-        if value is None:
-            return None
-        return int(float(value))
-    except (ValueError, TypeError):
-        return None
-
-
-def to_float_or_none(value: Any) -> float | None:
-    try:
-        if value is None:
-            return None
-        return float(value)
-    except (ValueError, TypeError):
-        return None
-
-
-def on_connect(client: mqtt.Client, _userdata: Any, _flags: Dict[str, Any], rc: int) -> None:
+def on_connect(client: mqtt.Client, _userdata: Any, _flags: dict[str, Any], rc: int) -> None:
     if rc == 0:
         print(f"[MQTT] Connected to {MQTT_HOST}:{MQTT_PORT}")
         subscribe_topic = "b6710545709/#" if MQTT_DEBUG_WILDCARD else MQTT_TOPIC
@@ -125,7 +46,7 @@ def on_disconnect(_client: mqtt.Client, _userdata: Any, rc: int) -> None:
     print(f"[MQTT] Disconnected rc={rc}")
 
 
-def on_message(_client: mqtt.Client, userdata: Dict[str, Any], msg: mqtt.MQTTMessage) -> None:
+def on_message(_client: mqtt.Client, userdata: dict[str, Any], msg: mqtt.MQTTMessage) -> None:
     print(f"[MQTT] Message received on topic: {msg.topic}")
     print(f"[MQTT] Raw payload: {msg.payload.decode('utf-8', errors='replace')}")
 
@@ -134,33 +55,33 @@ def on_message(_client: mqtt.Client, userdata: Dict[str, Any], msg: mqtt.MQTTMes
         print("[MQTT] Skip message due to parse error")
         return
 
-    values = (
-        parsed["device_id"],
-        parsed["soil_moisture"],
-        parsed["temperature"],
-        parsed["humidity"],
-        parsed["pm1_0"],
-        parsed["pm2_5"],
-        parsed["pm10"],
-    )
-
     try:
         conn: pymysql.connections.Connection = userdata["db_conn"]
-        with conn.cursor() as cursor:
-            affected_rows = cursor.execute(SQL_INSERT, values)
-        print(f"[DB] Inserted rows={affected_rows}, values={values}")
+        affected_rows = insert_field_monitoring_raw(conn, parsed)
+        print(f"[DB] Inserted rows={affected_rows}, values={parsed}")
     except pymysql.MySQLError as err:
         print(f"[DB] Insert failed: {err}")
 
 
 def main() -> None:
-    if not DB_PASSWORD:
-        print(f"[CONFIG] Missing DB_PASSWORD in {ENV_PATH}")
+    is_valid, error_message = validate_required_config()
+    if not is_valid:
+        print(error_message)
         print("[CONFIG] Please set DB_PASSWORD in .env before running.")
         return
 
-    db_conn = get_db_connection()
+    db_conn = get_db_connection(DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME)
+    ensure_field_monitoring_schema(db_conn, DB_NAME)
+    print("[DB] Schema ready: field_monitoring_raw + field_monitoring_analysis")
     print(f"[DB] Connected to {DB_HOST}:{DB_PORT}/{DB_NAME}")
+    if BACKFILL_ALL_ON_START:
+        total_backfilled = backfill_all_unprocessed(db_conn)
+        print(f"[PROCESSOR] Initial backfill completed, rows={total_backfilled}")
+    start_background_processor(db_conn, PROCESS_AFTER_MINUTES, PROCESS_POLL_SECONDS)
+    print(
+        "[PROCESSOR] Started background processor "
+        f"(process_after_minutes={PROCESS_AFTER_MINUTES}, poll_seconds={PROCESS_POLL_SECONDS})"
+    )
 
     client = mqtt.Client(client_id="daq_subscriber_python")
     if MQTT_USER:
