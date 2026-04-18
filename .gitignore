@@ -2,3 +2,11 @@
 firmware/secrets.h
 firmware/kidbright_micropython/secrets.py
 field_data_local.sqlite
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store
