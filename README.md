@@ -11,6 +11,9 @@
 - `scoring.py` คำนวณ Field Suitability Score
 - `processor.py` ประมวลผล secondary data แบบ background
 - `schema.sql` โครงสร้างตารางสมบูรณ์สำหรับ phpMyAdmin/MySQL
+- `api.py` Web API (FastAPI) + เสิร์ฟ dashboard
+- `api_queries.py` SQL อ่านอย่างเดียวสำหรับ API
+- `templates/dashboard.html` + `static/dashboard.{css,js}` หน้าจอ visualization
 
 ## Setup
 
@@ -43,6 +46,31 @@
   `raw_id, device_id, soil_condition, footwear_recommendation, field_score, field_status,`
   `air_quality_status, temp_score, humidity_score, air_quality_score, soil_score,`
   `rain_probability_pct, rain_forecast_status, created_at`
+
+## Web API + Dashboard
+
+รัน API + Dashboard:
+
+```bash
+.venv/bin/python -m uvicorn api:app --reload --host 0.0.0.0 --port 8000
+```
+
+จากนั้นเปิด:
+- `http://localhost:8000/` — Dashboard (กราฟ + คำแนะนำ)
+- `http://localhost:8000/docs` — OpenAPI / Swagger UI (auto-generated)
+
+### Endpoints
+
+| Method | Path | คืนค่า |
+|---|---|---|
+| GET | `/api/health` | สถานะ service + DB |
+| GET | `/api/devices` | list devices + last seen |
+| GET | `/api/latest` | sensor + analysis ของแถวล่าสุด (join 2 ตาราง) |
+| GET | `/api/recommendation` | สรุปการตัดสินใจ: เล่น/รองเท้า/ฝน |
+| GET | `/api/summary?hours=24` | avg/min/max + การกระจาย field_status |
+| GET | `/api/history?hours=24&limit=200` | time-series สำหรับวาดกราฟ |
+
+> Dashboard เรียกใช้แต่ `/api/*` เท่านั้น ไม่ติดต่อ DB โดยตรง
 
 ## Secondary Data Calibration (แนะนำ)
 

@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Smart Sport Field Monitoring</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/dashboard.css" />
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<div class="bg-fx" aria-hidden="true">
+  <div class="orb orb-a"></div>
+  <div class="orb orb-b"></div>
+  <div class="orb orb-c"></div>
+</div>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="logo-mark">
+      <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.2">
+        <circle cx="16" cy="16" r="13" />
+        <path d="M16 3 L20 11 L28 13 L22 19 L24 27 L16 23 L8 27 L10 19 L4 13 L12 11 Z" stroke-linejoin="round" />
+      </svg>
+    </div>
+    <div>
+      <h1>Smart Sport Field Monitoring</h1>
+      <small>Real-time field intelligence powered by your own Web API</small>
+    </div>
+  </div>
+  <div class="meta">
+    <div class="control">
+      <span class="control-label">Device</span>
+      <select id="deviceSelect"><option value="">All</option></select>
+    </div>
+    <div class="control">
+      <span class="control-label">Window</span>
+      <select id="hoursSelect">
+        <option value="1">1h</option>
+        <option value="6">6h</option>
+        <option value="24" selected>24h</option>
+        <option value="72">3d</option>
+        <option value="168">7d</option>
+      </select>
+    </div>
+    <div class="status-pill" id="connPill"><span class="dot"></span><span id="lastUpdate">—</span></div>
+    <a class="docs-link" href="/docs" target="_blank">OpenAPI &rarr;</a>
+  </div>
+</header>
+
+<section id="banner" class="status-banner status-unknown">
+  <div class="banner-side">
+    <div class="status-icon" id="bannerIcon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>
+    </div>
+    <div>
+      <span class="banner-label">Field Status</span>
+      <strong id="bannerStatus">Loading…</strong>
+      <span class="banner-sub" id="bannerSub">Awaiting first reading</span>
+    </div>
+  </div>
+  <div class="banner-side">
+    <div class="ring" id="scoreRing">
+      <svg viewBox="0 0 120 120">
+        <circle cx="60" cy="60" r="52" stroke="rgba(255,255,255,0.08)" stroke-width="10" fill="none"/>
+        <circle id="scoreArc" cx="60" cy="60" r="52" stroke="url(#grad)" stroke-width="10" fill="none"
+                stroke-dasharray="326.7" stroke-dashoffset="326.7" stroke-linecap="round"
+                transform="rotate(-90 60 60)"/>
+        <defs>
+          <linearGradient id="grad" x1="0" x2="1" y1="0" y2="1">
+            <stop offset="0%" stop-color="#22d3ee"/>
+            <stop offset="100%" stop-color="#a78bfa"/>
+          </linearGradient>
+        </defs>
+      </svg>
+      <div class="ring-text">
+        <strong id="bannerScore">—</strong>
+        <span>Field Score</span>
+      </div>
+    </div>
+    <div>
+      <span class="banner-label">Decision</span>
+      <strong id="bannerDecision">—</strong>
+      <span class="banner-sub">Based on the latest analysis</span>
+    </div>
+  </div>
+</section>
+
+<section class="grid grid-3 rec-grid">
+  <div class="card rec-card">
+    <div class="rec-header">
+      <h3>Footwear Recommendation</h3>
+      <span class="badge" id="recFootwearBadge">—</span>
+    </div>
+    <div class="rec-body">
+      <div class="footwear-illustration" id="footwearIllustration"></div>
+      <div>
+        <div class="rec-title" id="recFootwear">—</div>
+        <div class="muted" id="recFootwearDesc">Pick depends on soil condition</div>
+        <div class="muted small" id="recSoil">Soil: —</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card rec-card">
+    <div class="rec-header">
+      <h3>Air Quality</h3>
+      <span class="badge" id="recAirBadge">—</span>
+    </div>
+    <div class="rec-body">
+      <div class="icon-tile" id="airIcon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+          <path d="M3 12h12a3 3 0 1 0-3-3"/>
+          <path d="M3 17h15a3 3 0 1 1-3 3"/>
+          <path d="M3 7h7a2 2 0 1 0-2-2"/>
+        </svg>
+      </div>
+      <div>
+        <div class="rec-title" id="recAir">—</div>
+        <div class="muted" id="recAirScore">Air score: —</div>
+        <div class="muted small" id="recAirPm">PM2.5 — &micro;g/m&sup3; · PM10 — &micro;g/m&sup3;</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card rec-card">
+    <div class="rec-header">
+      <h3>Rain Forecast</h3>
+      <span class="badge" id="recRainBadge">—%</span>
+    </div>
+    <div class="rec-body">
+      <div class="icon-tile rain" id="rainIcon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+          <path d="M7 18a5 5 0 1 1 1-9.9 6 6 0 0 1 11.7 2A4 4 0 0 1 19 18H7Z"/>
+          <path d="M9 21l1-2M13 21l1-2M17 21l1-2"/>
+        </svg>
+      </div>
+      <div>
+        <div class="rec-title" id="recRain">—</div>
+        <div class="muted" id="recRainProb">Probability: —</div>
+        <div class="muted small">Heuristic from humidity, soil, temperature</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="grid grid-4">
+  <div class="card score-card" data-score="temp">
+    <h4>Temperature</h4>
+    <div class="big" id="scoreTemp">—</div>
+    <div class="bar"><span id="barTemp"></span></div>
+  </div>
+  <div class="card score-card" data-score="hum">
+    <h4>Humidity</h4>
+    <div class="big" id="scoreHum">—</div>
+    <div class="bar"><span id="barHum"></span></div>
+  </div>
+  <div class="card score-card" data-score="air">
+    <h4>Air Quality</h4>
+    <div class="big" id="scoreAir">—</div>
+    <div class="bar"><span id="barAir"></span></div>
+  </div>
+  <div class="card score-card" data-score="soil">
+    <h4>Soil</h4>
+    <div class="big" id="scoreSoil">—</div>
+    <div class="bar"><span id="barSoil"></span></div>
+  </div>
+</section>
+
+<section class="grid grid-2">
+  <div class="card">
+    <h3>Latest Sensor Readings</h3>
+    <div class="sensor-grid">
+      <div class="sensor-tile">
+        <span class="sensor-label">Temperature</span>
+        <strong><span id="sTemp">—</span><small>&deg;C</small></strong>
+      </div>
+      <div class="sensor-tile">
+        <span class="sensor-label">Humidity</span>
+        <strong><span id="sHum">—</span><small>%</small></strong>
+      </div>
+      <div class="sensor-tile">
+        <span class="sensor-label">Soil Moisture</span>
+        <strong><span id="sSoil">—</span><small>ADC</small></strong>
+      </div>
+      <div class="sensor-tile">
+        <span class="sensor-label">PM1.0</span>
+        <strong><span id="sPm1">—</span><small>&micro;g/m&sup3;</small></strong>
+      </div>
+      <div class="sensor-tile">
+        <span class="sensor-label">PM2.5</span>
+        <strong><span id="sPm25">—</span><small>&micro;g/m&sup3;</small></strong>
+      </div>
+      <div class="sensor-tile">
+        <span class="sensor-label">PM10</span>
+        <strong><span id="sPm10">—</span><small>&micro;g/m&sup3;</small></strong>
+      </div>
+    </div>
+    <div class="muted small" id="analysisNote">Analysis source: —</div>
+  </div>
+  <div class="card">
+    <h3>Trend</h3>
+    <canvas id="trendChart" height="170"></canvas>
+  </div>
+</section>
+
+<section class="grid grid-2">
+  <div class="card">
+    <div class="card-head">
+      <h3>Window Statistics</h3>
+      <span class="chip" id="summaryWindowChip">last 24h</span>
+    </div>
+    <div class="stats-grid" id="statsGrid">
+      <div class="stat-tile placeholder"><span class="muted small">Loading…</span></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-head">
+      <h3>Field Status Distribution</h3>
+      <span class="chip" id="distWindowChip">last 24h</span>
+    </div>
+    <div class="dist-wrap">
+      <div class="dist-chart">
+        <canvas id="distChart"></canvas>
+        <div class="dist-center">
+          <strong id="distTotal">0</strong>
+          <span>readings</span>
+        </div>
+      </div>
+      <div class="dist-legend" id="distLegend"></div>
+    </div>
+  </div>
+</section>
+
+<footer class="muted">
+  Data source: your own Web API at <code>/api/*</code>. The dashboard never queries the database directly.
+</footer>
+
+<script src="/static/dashboard.js"></script>
+</body>
+</html>
