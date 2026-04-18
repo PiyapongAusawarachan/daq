@@ -1,0 +1,4 @@
+.env
+firmware/secrets.h
+firmware/kidbright_micropython/secrets.py
+field_data_local.sqlite
