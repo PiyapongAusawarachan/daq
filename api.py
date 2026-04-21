@@ -18,6 +18,8 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
+from queue import Empty, Queue
+from threading import Lock
 from typing import Any
 
 import pymysql
@@ -28,7 +30,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
 
 from api_queries import fetch_devices, fetch_history, fetch_latest, fetch_summary
-from config import DB_HOST, DB_NAME, DB_PASSWORD, DB_PORT, DB_USER
+from config import API_DB_POOL_SIZE, DB_HOST, DB_NAME, DB_PASSWORD, DB_PORT, DB_USER
 from db_utils import get_db_connection
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -51,20 +53,70 @@ if STATIC_DIR.exists():
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 
+class MySQLConnectionPool:
+    def __init__(self, size: int) -> None:
+        self.size = max(1, size)
+        self._queue: Queue[pymysql.connections.Connection] = Queue(maxsize=self.size)
+        self._created = 0
+        self._lock = Lock()
+
+    def _new_connection(self) -> pymysql.connections.Connection:
+        return get_db_connection(DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME)
+
+    def acquire(self) -> pymysql.connections.Connection:
+        try:
+            conn = self._queue.get_nowait()
+            conn.ping(reconnect=True)
+            return conn
+        except Empty:
+            pass
+        except pymysql.MySQLError:
+            # Broken connection: drop and create a new one below.
+            pass
+
+        with self._lock:
+            if self._created < self.size:
+                conn = self._new_connection()
+                self._created += 1
+                return conn
+
+        conn = self._queue.get()
+        conn.ping(reconnect=True)
+        return conn
+
+    def release(self, conn: pymysql.connections.Connection) -> None:
+        try:
+            conn.ping(reconnect=True)
+            self._queue.put_nowait(conn)
+        except Exception:  # noqa: BLE001
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+            with self._lock:
+                self._created = max(0, self._created - 1)
+
+
+pool = MySQLConnectionPool(size=API_DB_POOL_SIZE)
+
+
 # ---------------------------------------------------------------------------
-# DB connection per-request (ใช้ง่าย, ไม่ต้องตั้ง pool)
+# DB connection pool (reuse connections, keep connection count stable)
 # ---------------------------------------------------------------------------
 def get_conn() -> pymysql.connections.Connection:
     if not DB_PASSWORD:
         raise HTTPException(status_code=500, detail="DB_PASSWORD is not configured.")
-    conn = get_db_connection(DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME)
+    try:
+        conn = pool.acquire()
+    except pymysql.MySQLError as err:
+        raise HTTPException(
+            status_code=503, detail=f"Database is busy or unavailable: {err}"
+        ) from err
+
     try:
         yield conn
     finally:
-        try:
-            conn.close()
-        except Exception:  # noqa: BLE001
-            pass
+        pool.release(conn)
 
 
 # ---------------------------------------------------------------------------

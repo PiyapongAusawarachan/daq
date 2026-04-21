@@ -39,6 +39,7 @@ DB_NAME = (os.getenv("DB_NAME", "b6710545709") or "").strip() or "b6710545709"
 PROCESS_AFTER_MINUTES = int(os.getenv("PROCESS_AFTER_MINUTES", "60"))
 PROCESS_POLL_SECONDS = int(os.getenv("PROCESS_POLL_SECONDS", "30"))
 BACKFILL_ALL_ON_START = os.getenv("BACKFILL_ALL_ON_START", "1") == "1"
+API_DB_POOL_SIZE = int(os.getenv("API_DB_POOL_SIZE", "2"))
 
 
 def validate_required_config() -> tuple[bool, str]:
